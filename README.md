@@ -8,6 +8,8 @@ Even though GBM model yielded the best metrics for this project, various hyperpa
 
 To run the R script and to generate the pdf, download the Rmd file and select Knit>Knit to PDF in the R studio. The script will download the dataset from UCI archive. 
 
+Please note when executing R script in RStudio, maximize the application window, so the script does not throw an error about "Error in plot.new() : figure margins too large".
+
 RStudio 2023.09.1+494 "Desert Sunflower" Release (cd7011dce393115d3a7c3db799dda4b1c7e88711, 2023-10-16) for windows
 Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) RStudio/2023.09.1+494 Chrome/116.0.5845.190 Electron/26.2.4 Safari/537.36
 

@@ -1,0 +1,471 @@
+---
+title: "PH125.9x Data Science Capstone: Differentiated Thyroid Cancer Recurrence"
+author: "Krithika Ganeshkumar"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    highlight: tango
+    keep_tex: true
+    df_print: kable
+  html_document: default
+  always_allow_html: true
+  urlcolor: blue
+  linkcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE, 
+                      message = FALSE, 
+                      fig.align = "center",
+                      out.width = "80%")
+```
+\newpage
+
+# Executive Summary
+
+Thyroid is a small butterfly-shaped gland, part of the endocrine system located at the base of the neck. The hormones produced by the gland affects every cell in the body. It is essential to regulate the rate at which the body uses fats and carbohydrates. Thyroid cancer is a type of cancer that occurs in the thyroid gland. This type of cancer mostly cannot be seen or felt. Even though the mortality due to thyroid cancer remains low, the risk of recurrence is high. It warrants frequent follow ups and management.
+
+The primary goal of this project is to train machine learning models such as naive Bayes, random forest, support vector machine, k-nearest neighbors, generalized linear model and gradient boosting machine to predict the likelihood of thyroid cancer recurrence in patients diagnosed with differentiated thyroid cancer. The dataset is available at [\underline{UCI}](https://archive.ics.uci.edu/dataset/915/differentiated+thyroid+cancer+recurrence). This dataset is analyzed by utilizing the various tools learned throughout the courses in the PH125.x data science series. The objective is to determine a model that yields the highest score for recall/sensitivity and AUC (Area Under the Curve) among the trained models. This dataset is part of research in the field of AI and Medicine and does not contain any sensitive data. It does not have any missing (NA) values.
+
+In this report, several key steps are followed to achieve the objective by exploratory analysis of data including checking for NAs, proportion of target variable, distribution of feature variables through data visualization, training and validating the models using the dataset provided. All models are trained on the train set which is 80% of the dataset. The validation set is derived from 20% of the dataset. Repeated cross-validation method is employed to estimate the performance of the model. Confusion matrix results are analyzed at each step and eventually, the model with the best metrics for predicting the recurrence of thyroid cancer from the validation set is selected as the best model for this project. After training and validating various models, gradient boosting machine (GBM) yielded the best results when compared to other models trained for this project. 
+
+```{r installing required packages}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(Hmisc)) install.packages("Hmisc", repos = "http://cran.us.r-project.org")
+if(!require(ggcorrplot)) install.packages("ggcorrplot", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(reshape2)) install.packages("reshape2")
+if(!require(devtools)) install.packages("devtools")
+if(!require(lares)) install.packages("lares")
+if(!require(randomForest)) install.packages("randomForest")
+if(!require(kernlab)) install.packages("kernlab")
+if(!require(gbm)) install.packages("gbm")
+if(!require(xgboost)) install.packages("xgboost")
+if(!require(ada)) install.packages("ada")
+if(!require(rpart)) install.packages("rpart")
+if(!require(caretEnsemble)) install.packages("caretEnsemble")
+if(!require(naivebayes)) install.packages("naivebayes")
+if(!require(MLmetrics)) install.packages("MLmetrics")
+if(!require(ROCR)) install.packages("ROCR")
+if(!require(pROC)) install.packages("pROC")
+if(!require(LogicReg)) install.packages("LogicReg")
+
+library(tidyverse)
+library(caret)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(kableExtra)
+library(Hmisc)
+library(ggcorrplot)
+library(dplyr)
+library(reshape2)
+library(lares)
+library(naivebayes)
+library(randomForest)
+library(kernlab)
+library(gbm)
+library(xgboost)
+library(ada)
+library(rpart)
+library(caretEnsemble)
+library(MLmetrics)
+library(ROCR)
+library(pROC)
+library(LogicReg)
+```
+
+```{r Read thyroid dataset in csv format }
+dataset_filename <- "Thyroid_Diff.csv"
+if (!file.exists(dataset_filename))
+  download.file("https://raw.githubusercontent.com/creetheeka/thyroid_cancer_recurrence/main/Thyroid_Diff.csv", "Thyroid_Diff.csv")
+suppressWarnings(thyroid_dataset <- read.csv("Thyroid_Diff.csv"))
+```
+
+\newpage
+# Analysis and Methods
+
+## Dataset Analysis
+
+The dataset consists of `r nrow(thyroid_dataset)` rows and `r ncol(thyroid_dataset)` columns. The top 6 rows of the dataset is displayed in table 1.
+```{r display top 6 rows}
+head(thyroid_dataset) %>% 
+  kable(caption = "Top 6 rows of thyroid cancer recurrence dataset", align = 'ccclll', format = "latex", linesep = "", booktabs = TRUE, row.names = FALSE) %>%
+  row_spec(0, bold=TRUE) %>%
+  kable_styling(full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```
+
+The dimensions of the dataset are, 
+```{r dataset dimensions}
+dim <- dim(thyroid_dataset)
+dim
+```
+
+From the output of the structure of the dataset, it is evident that most of the variables are categorical. For the purposes of statistical modeling, these features need to be factorized.
+```{r dataset structure, echo = TRUE}
+str(thyroid_dataset)
+```
+
+```{r factorize the categorical features, include=FALSE}
+pre_factor <- is.factor(thyroid_dataset$Recurred)
+thyroid_dataset[sapply(thyroid_dataset, is.character)] <- lapply(thyroid_dataset[sapply(thyroid_dataset, is.character)], as.factor)
+post_factor <- is.factor(thyroid_dataset$Recurred)
+```
+
+
+After factorizing the variables besides the Age feature, the structure looks like this.
+```{r dataset structure after factorize, echo = TRUE}
+str(thyroid_dataset)
+```
+
+Overall summary of the dataset is,
+```{r dataset summary, echo = TRUE}
+summary(thyroid_dataset)
+```
+
+\vspace{2in}
+
+## Dataset Cleaning
+
+Let's explore the dataset for NAs and remove them if present. The output of anyNA yields, `r anyNA(thyroid_dataset)`. Overall, the dataset appears to be clean and does not require further pre-processing since we have already factorized the categorical variables. Table 2 displays the variables and their NA count if any.
+```{r check for NA values in the dataset, include=FALSE}
+na <- anyNA(thyroid_dataset)
+```
+
+```{r table to display count of NAs if any}
+sapply(thyroid_dataset, function(x) sum(is.na(x))) %>% 
+  kable(caption = "Table of variables and count of NA", col.names = c("Variable" ,"NA count")) %>%
+  row_spec(0, bold=TRUE) %>%
+  kable_styling(font_size=4, full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```                                                     
+
+```{r percentage of target, include = TRUE, echo = FALSE}
+percent <- prop.table(table(thyroid_dataset$Recurred)) * 100
+```
+
+
+## Dataset Exploration
+
+The proportion of the target variable, Recurred is plotted below. Recurrence appears to be `r percent[2]`% whereas non-recurrence is `r percent[1]`%.
+```{r proportion of target }
+thyroid_dataset %>%
+  ggplot(aes(Recurred, fill=Recurred)) +
+  geom_bar() +
+  scale_x_discrete() +
+  scale_y_continuous(labels = scales::comma) +
+  labs(title = "Proportion of Recurred vs Non-Recurred")
+```
+\vspace{1 in}
+
+```{r count of Recurred or not, echo = FALSE}
+thyroid_dataset %>%
+  group_by(Recurred) %>%
+  summarise(Count = n()) %>% 
+  kable(caption = "Count of Yes and No for the Recurred target variable", col.names = c("Recurred" ,"NA count")) %>%
+  row_spec(0, bold=TRUE) %>%
+  kable_styling(font_size=4, full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```
+
+\vspace{3in}
+
+A plot of the categorical features and target variable is displayed below. The count of recurrence vs non-recurrence appears to be mostly normally distributed across the features. 
+```{r histogram of features, plot-wider, fig.width=10, fig.height=10}
+hist_data <- thyroid_dataset[, c("Gender","Smoking","Hx.Smoking","Hx.Radiothreapy","Thyroid.Function", "Physical.Examination", "Adenopathy", "Pathology","Focality" , "Risk","T", "N","M","Stage","Response", "Recurred" )]
+  ggplot(data = melt(hist_data, id.var = "Recurred"), mapping = aes(x = value)) + 
+  geom_bar(aes(fill=Recurred)) +
+  labs(title = "Plot of categorical features and target",
+       x = "Categorical Feature",
+       y = "Count") +
+  facet_wrap(~variable, scales='free_x') + 
+  theme(axis.text.x=element_text(angle=90, hjust=1, vjust=0.5))
+```
+
+\newpage
+
+A plot of the Age feature which is of integer type and the target variable is plotted below. Its distribution is also similar to the previous histogram plot.
+```{r histogram of Age feature}
+thyroid_dataset %>% 
+  ggplot(aes(x = Age)) + 
+  labs(title = "Distribution of Age and Target",
+       x = "Age",
+       y = "Count") +
+  geom_histogram(bins=10, aes(fill=Recurred)) 
+```
+
+
+Table 4 displays the top 6 rows of the factorized categorical features to aid with statistical modeling and computations when training and validating the machine learning models.
+
+```{r factorize categorical features for correlation matrix}
+cor_dataset <- thyroid_dataset
+cor_dataset[sapply(cor_dataset, is.factor)] <- data.matrix(cor_dataset[sapply(cor_dataset, is.factor)])
+head(cor_dataset) %>%
+  kable(caption = "Top 6 rows of factorized categorical features",align = 'ccclll', format = "latex", linesep = "", booktabs = TRUE, row.names = FALSE) %>%
+  row_spec(0, bold=TRUE) %>%
+  kable_styling(full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```
+
+\vspace{3in}
+
+Next step is to identify the correlation matrix between the features.The plot below illustrates the correlation matrix. There does not seem to be a strong correlation between the features. This eliminates the need to remove any features when training the models. All correlations are less than 0.9 which indicates there is no strong correlation. 
+```{r correlation matrix, plot-wider, fig.width= 10, fig.height= 10}
+dataset_cormat <- cor(cor_dataset %>% dplyr::select(-Recurred) %>% keep(is.numeric))
+ggcorrplot(dataset_cormat, hc.order = TRUE, outline.color = "white", insig = "blank", lab = TRUE) +
+  labs(title = "Correlation Matrix of features")
+```
+```{r higly correlated if any, include = TRUE}
+high_cor <- colnames(cor_dataset)[findCorrelation(dataset_cormat, verbose = TRUE)]
+```
+
+\newpage
+
+The plots below illustrate the ranked cross correlations and correlations of the target variable, Recurred. Once again, we can observe that there are no strong correlations between the feature set.
+
+```{r ranked cross correlation}
+corr_cross(cor_dataset, max_pvalue = 0.5)
+```
+```{r correlation of Recurred and Features}
+corr_var(cor_dataset, Recurred)
+```
+\newpage
+
+## Machine Learning Modeling Methods
+
+In this section, we will split the thyroid dataset into train and validation sets.The train set is 80% and validation is 20% of the dataset.As stated in this [technical report](https://scholarworks.utep.edu/cs_techrep/1209/#:~:text=We%20first%20train%20our%20model,of%20the%20data%20for%20training), empirical studies confirm that best results are achieved if we split 70-80% of the data for training and 20-30% for testing. Since the dataset is relatively small, it is split into train and validation rather than train, test and validation. Nevertheless, cross-validation technique is employed which can be leveraged for smaller datasets. Also, techniques such as repeatedcv is used to help with model evaluation on different subsets of the dataset.
+
+```{r create train and validation set}
+set.seed(2023, sample.kind="Rounding")
+train_idx <- createDataPartition(y = thyroid_dataset$Recurred, times = 1, p = 0.8, list = FALSE)
+train_set <- thyroid_dataset[train_idx,]
+validation_set <- thyroid_dataset[-train_idx,]
+rm(train_idx)
+```
+
+Caret package, which is short for Classification and REgression Training contains functions which are used in this project to train and validate the models.The caret package uses a number of R packages and performs hyperparameter tuning by default. Parameters to control training model is configured so it is consistent across the models where applicable. The sampling method used is repeatedcv and the number of resampling iterations is 10. The number of complete sets of folds to compute is set to 10. Summary function used is twoClassSummary, which is used to compute performance metric across resamples. This summary function computes the AUC (Area under the ROC curve) as well as the sensitivity and specificity metrics which will be described later in this report. ROC (Receiver Operating Charateristic Curve) is a graph showing the performance of a model. It plots TPR (True Positive Rate) and FPR (False Positive Rate). TPR is also called as recall.The class probabilities to be computed for classification models in each resample is enabled.Repeatedcv is chosen over cv because repeatedcv performs 10-fold cross-validation on the training data using a different set of folds for each cross-validation and this aids with yielding more robust and accurate results. The caret package contains train function which includes the model method, configures tuning parameters for that corresponding method, and also ROC metric to be measured by training that method. The predict function is used to make predictions on the trained dataset.
+
+```{r control parameters for training}
+model_fit_ctrl <- trainControl(method = "repeatedcv", 
+                               repeats = 10,
+                               number = 10, 
+                               summaryFunction = twoClassSummary,
+                               classProbs = TRUE)
+```
+
+Confusion Matrix is used to evaluate performance of a machine learning model including the accuracy of a model. It includes true positives, true negatives, false positives and false negatives. In the table below, the columns represent the actual values of the target variable, whereas the rows represent the predicted values of the target variable. The confusion matrix compares the actual value of the target with those predicted by the models. It is used to calculate accuracy, precision, recall and F1 score.
+
+
+```{r confusion matrix table}
+df <- matrix(c('TP', 'FP', 'FN', 'TN'), ncol=2, byrow=TRUE)
+colnames(df) <- c('Positive', 'Negative')
+rownames(df) <- c('Positive', 'Negative')
+df %>% 
+  kable(caption = "Confusion Matrix") %>%
+  kable_styling(full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```
+
+
+TP = Number of samples correctly predicted as positive \vspace{0.2in}
+
+FP = Number of samples incorrectly predicted as positive \vspace{0.2in}
+
+TN = Number of samples correctly predicted as negative \vspace{0.2in}
+
+FN = Number of samples incorrectly predicted as negative \vspace{0.2in}
+
+
+Precision is calculated as $\frac{TP}{TP+FP}$, recall is calculated as $\frac{TP}{TP+FN}$ and accuracy is calculated as $\frac{TP+TN} {TP+FP+TN+FN}$. Precision metric is used when false positive(FP) trumps false negatives(FN) and recall is used when false negative(FN) trumps false positive(FP). In this project, it is crucial for note recall metrics since in medical reports we do not want to miss actual positive cases. Recall is also called as sensitivity (TPR) because it is highly sensitive and thereby fewer false negatives. Specificity is also referred as True Negative Rate (TNR). Balanced Accuracy in the confusion matrix output represents the AUC.
+
+### Naive Bayes (NB)
+
+Naive Bayes is one of the basic classification based machine learning algorithms.It assumes that all features are equally distributed to the outcome and predictors are conditionally independent. Despite being simple, Naive Bayes trained model performs well especially on smaller datasets. The results of confusion matrix and AUC is displayed below. 
+
+```{r train Naive Bayes Model}
+nb_grid <- expand.grid(laplace=c(0),
+                           usekernel =c(FALSE),
+                           adjust = 0.5)
+nb_model <- train(Recurred ~ .,
+                           method = "naive_bayes",
+                           tuneGrid = nb_grid,
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude)
+
+predict_nb <- predict(nb_model, validation_set, type = "raw")
+cf_matrix_nb <- confusionMatrix(predict_nb, validation_set$Recurred, positive = "Yes")
+cf_matrix_nb
+roc_obj_nb <- roc(validation_set$Recurred, as.numeric(predict_nb))
+auc_val_nb <- auc(roc_obj_nb)
+plot(roc_obj_nb, main = paste("Naive Bayes Model AUC:", round(auc_val_nb, digits = 4)))
+```
+
+
+### Generalized Linear Model (GLM)
+
+
+Generalized Linear Model is a class of models that allows flexible and non-linear relationships between response and predictor variables. The caret package 'glm' is used to train the train set. ROC is a metric used to measure the model performance. Prediction is performed by leveraging the predict function with the trained model and validation set as inputs. Confusion matrix is used to evaluate the performance of this classification model by comparing the predicted values against the actual target values.The results of confusion matrix and AUC is displayed below. 
+```{r train Generalized linear model}
+glm_model <- train(Recurred ~ .,
+                           method = "glm",
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude)
+
+predict_glm <- predict(glm_model, validation_set, type = "raw")
+cf_matrix_glm <- confusionMatrix(predict_glm, validation_set$Recurred, positive = "Yes")
+cf_matrix_glm
+roc_obj_glm <- roc(validation_set$Recurred, as.numeric(predict_glm))
+auc_val_glm <- auc(roc_obj_glm)
+plot(roc_obj_glm, main = paste("Generalized Linear Model AUC:", round(auc_val_glm, digits = 4)))
+```
+
+
+### Random Forest (RF)
+
+Random forest is a machine learning algorithm that combines the output of multiple decision trees to achieve a single output. It performs well on both classification and regression based problems. In this project, the decision tree is an example of a classification problem, where the labels are 'Yes' or 'No' for 'Recurred' target variable.They are prone to predict accurate results especially when features are uncorrelated with each other.The results of confusion matrix and AUC is displayed below.
+
+```{r train Random Forest Model}
+rf_grid <- data.frame(mtry = 3)
+rf_model <- train(Recurred ~ .,
+                           method = "rf",
+                           tuneGrid = rf_grid,
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude)
+
+predict_rf <- predict(rf_model, validation_set)
+cf_matrix_rf <- confusionMatrix(predict_rf, validation_set$Recurred, positive = "Yes")
+cf_matrix_rf
+roc_obj_rf <- roc(validation_set$Recurred, as.numeric(predict_rf))
+auc_val_rf <- auc(roc_obj_rf)
+plot(roc_obj_rf, main = paste("Random Forest Model AUC:", round(auc_val_rf, digits = 4)))
+```
+
+### Support Vector Machine Model (SVM)
+
+Support Vector Machine (SVM) is used to find a hyperplane (decision boundary) that classifies the data points. To classify the data points, many possible hyperplanes could be chosen. The goal is to find a plane that yields the maximum distance between the data points of both classes and in this project, the classes are 'Yes' and 'No' of the target variable, Recurred.SVMLinear method fits a linear SVM model and supports binary classification method with linear kernel. The results of confusion matrix and AUC is displayed below.
+
+```{r train Support Vector Machine model with Linear Kernel}
+
+svm_model <- train(Recurred ~ .,
+                           method = "svmLinear",
+            
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude)
+
+predict_svm <- predict(svm_model, validation_set)
+cf_matrix_svm <- confusionMatrix(predict_svm, validation_set$Recurred, positive = "Yes")
+cf_matrix_svm
+roc_obj_svm <- roc(validation_set$Recurred, as.numeric(predict_svm))
+auc_val_svm <- auc(roc_obj_svm)
+plot(roc_obj_svm, main = paste("Support Vector Machine Model AUC:", round(auc_val_svm, digits = 4)))
+```
+
+### K-Nearest Neighbor Model (KNN)
+
+K-Nearest Neighbor (KNN) is a widely used algorithm for classification problems in machine learning. It fairs across calculation and prediction time. The 'K' in KNN is the nearest neighbor(s) to be considered for computation. 'K' is typically an odd number to avoid ties in classification. In this project, a grid of 'k' values 1 through 21 are used. The results of confusion matrix and AUC is displayed below.
+
+```{r train K-Nearest Neighbors model}
+knn_grid <- expand.grid(k= c(1:21))
+knn_model <- train(Recurred ~ .,
+                           method = "knn",
+                           tuneGrid = knn_grid,
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude)
+
+predict_knn <- predict(knn_model, validation_set)
+cf_matrix_knn <- confusionMatrix(predict_knn, validation_set$Recurred, positive = "Yes")
+cf_matrix_knn
+roc_obj_knn <- roc(validation_set$Recurred, as.numeric(predict_knn))
+auc_val_knn <- auc(roc_obj_knn)
+plot(roc_obj_knn, main = paste("KNN Model AUC:", round(auc_val_knn, digits = 4)))
+```
+
+
+### Gradient Boosting Machine Model (GBM)
+
+Gradient Boosting Machine (GBM) is a popular machine learning algorithms. Unlike linear regression, naive Bayes and SVM algorithms which are based on a single predictive model, and unlike random forest which is based on building an ensemble model, boosting adds new models to the ensemble sequentially. This algorithm provides several tuning parameters and caret handles the hyper parameters tuning automatically. In this project, 'gbm' method is used which is the original R implementation of GBM and is stochastic based. The results of confusion matrix and AUC is displayed below.
+
+```{r train Stochastic Gradient Boosting}
+set.seed(1, sample.kind = "Rounding")
+gbm_model <- train(Recurred ~ .,
+                           method = "gbm",
+                           data = train_set,
+                           metric = "ROC",
+                           trControl = model_fit_ctrl,
+                           na.action = na.exclude,
+                           verbose = FALSE)
+
+predict_gbm <- predict(gbm_model, validation_set)
+cf_matrix_gbm <- confusionMatrix(predict_gbm, validation_set$Recurred, positive = "Yes")
+cf_matrix_gbm
+roc_obj_gbm <- roc(validation_set$Recurred, as.numeric(predict_gbm))
+auc_val_gbm <- auc(roc_obj_gbm)
+plot(roc_obj_gbm, main = paste("GBM AUC:", round(auc_val_gbm, digits = 4)))
+```
+
+# Results
+
+A tabular structure of machine learning models and their confusion matrix metrics results are displayed in table 5. The model with the highest value for most metrics especially sensitivity and balanced accuracy is selected as the 'best model' among the other models trained and validated for this project. The Gradient Boosting Machine (GBM) model is selected as the best model for this project based on the confusion matrix results. 
+
+ 
+
+```{r confusion matrix results for each model}
+cm_list <- list(
+    "NB"  = cf_matrix_nb,
+    "GLM" = cf_matrix_glm,
+    "RF"  = cf_matrix_rf,
+    "SVM" = cf_matrix_svm,
+    "KNN" = cf_matrix_knn,
+    "GBM" = cf_matrix_gbm
+    )
+cm_results <- sapply(cm_list, function(x) x$byClass)
+cm_results <- as.data.frame(cm_results)
+cm_results %>% 
+  mutate("Best Model" = names(.)[max.col(.)]) %>%
+  kable(caption = "Confusion Matrix Results across ML models", align = 'ccclll', format = "latex", linesep = "", booktabs = TRUE) %>%
+  row_spec(0,bold=TRUE) %>%
+  kable_styling(full_width = FALSE, position = "center", latex_options = c("scale_down", "HOLD_position", "striped"))
+```
+
+\vspace {1in}
+
+# Conclusion
+
+
+In summary, the goal of this project is to train and validate machine learning algorithms to identity the best model to classify the recurrence of differentiated thyroid cancer based on the feature variables provided in the dataset. After training various models such as Linear Model, Naive Bayes, Support Vector Machine, Random Forest, and KNN, Gradient Boosting Machine (GBM) model yielded the best results for sensitivity which is a crucial diagnostic metric in medical field. This model also produced highest value for Area Under the Curve (AUC). 
+
+Even though GBM model yielded the best metrics for this project, there are various hyper parameters that could be fine tuned to generate better results. Future work would include additional research on much larger datasets and train advanced algorithms that could involve intensive computing. Also, other packages besides caret could also be utilized to try various techniques and explore advanced metrics besides cross-validation to develop an ideal model.
+
+\newpage
+
+# References
+
+Irizarry, Rafael A. Introduction to Data Science, rafalab.dfci.harvard.edu/dsbook-part-1/
+<https://rafalab.dfci.harvard.edu/dsbook-part-1/>
+
+
+Irizarry, Rafael A. Introduction to Data Science, rafalab.dfci.harvard.edu/dsbook-part-2/
+<https://rafalab.dfci.harvard.edu/dsbook-part-2/>
+
+Irizarry, Rafael A. Introduction to Data Science Data Analysis and Prediction Algorithms with R. CRC Press, 2020. 
+
+<https://archive.ics.uci.edu/dataset/915/differentiated+thyroid+cancer+recurrence>
+
+Borzooei,Shiva and Tarokhian,Aidin. (2023). Differentiated Thyroid Cancer Recurrence. UCI Machine Learning Repository. https://doi.org/10.24432/C5632J.
+
+
+
